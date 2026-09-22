@@ -17,7 +17,7 @@ This separates two useful answers: what the current packing draft says, and what
 Download the repository and open `index.html` in a current desktop browser. It needs no installation, server or account. Alternatively, serve this directory with `python3 -m http.server 8769` and visit `http://localhost:8769`.
 
 1. Enter an order reference, product lines (`SKU | product name | quantity`), and carton names separated by commas. **Try a packed order** opens the demonstration.
-2. Record the quantities actually packed. Move quantities between cartons or return them to unpacked when plans change.
+2. Record the quantities actually packed. Move quantities between cartons or return them to unpacked when plans change. Add a carton when needed; remove empty cartons after consolidation.
 3. Check every carton against its physical contents. Sealing is available only when all ordered units are assigned and every listed carton has contents.
 4. **Seal dispatch record**, confirm, then download the record file and packing slips. Print one slip per carton from the downloaded HTML.
 5. Later, open the record file and select the missing carton. **View packing draft** lets you inspect or edit the separate working version.
@@ -55,7 +55,7 @@ DOM-model tests cover application handlers and persistence; they do not substitu
 - Whole units only; up to 100 product lines, 50 cartons and 1,000,000 units per SKU. Identical SKU/name lines merge; conflicting product names for a SKU are rejected.
 - Allocation and repacking return validated copies. A rejected move cannot deduct units from the source carton.
 - Imports rebuild allocations against order quantities and reject overpacking, unknown cartons and invalid sealed records. Files must be under 2 MB.
-- A sealed dispatch stays separate from later draft edits. It cannot be amended inside this version. Correct and save a new record if the actual shipment changes; retain both files according to your process.
+- A sealed dispatch stays separate from later draft edits. It cannot be amended inside this version. If the actual shipment changes, download the existing record, choose **New order**, recreate the corrected packing plan, and seal and save that new record. Ordinary **Save record file** keeps the original dispatch; editing the draft does not correct it. Retain both files according to your process.
 - No network requests or telemetry. Records remain in the browser or downloaded files. They are not encrypted; handle real customer records appropriately.
 - The operator is responsible for accurate entry, physical checks and retaining the correct record. This is a packing aid, not an inventory or warehouse management system.
 
