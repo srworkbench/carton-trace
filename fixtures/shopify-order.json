@@ -1,0 +1,24 @@
+{
+  "data": {
+    "order": {
+      "id": "gid://shopify/Order/1042",
+      "name": "#1042",
+      "fulfillmentOrders": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [{
+          "id": "gid://shopify/FulfillmentOrder/2201",
+          "status": "OPEN",
+          "lineItems": {
+            "pageInfo": { "hasNextPage": false },
+            "nodes": [
+              { "id": "gid://shopify/FulfillmentOrderLineItem/301", "sku": "MUG-BLUE", "productTitle": "Stoneware mug", "variantTitle": "Blue", "remainingQuantity": 24, "requiresShipping": true },
+              { "id": "gid://shopify/FulfillmentOrderLineItem/302", "sku": "TEA", "productTitle": "Tea tin", "variantTitle": "Default Title", "remainingQuantity": 12, "requiresShipping": true },
+              { "id": "gid://shopify/FulfillmentOrderLineItem/303", "sku": "BOTTLE", "productTitle": "Bottle", "variantTitle": "Default Title", "remainingQuantity": 8, "requiresShipping": true },
+              { "id": "gid://shopify/FulfillmentOrderLineItem/304", "sku": null, "productTitle": "Digital guide", "variantTitle": "Default Title", "remainingQuantity": 1, "requiresShipping": false }
+            ]
+          }
+        }]
+      }
+    }
+  }
+}
