@@ -11,13 +11,20 @@
       ><span>From packed order to exact box contents</span>
     </header>
     <main>
-      <h1>Every box has a story.<br />Keep its contents.</h1>
+      <h1>From Shopify order to a packing list for every carton.</h1>
       <p class="intro">
-        Record what you pack. Reconcile the order. Find exactly what was in a
-        missing carton.
+        Import fulfillment lines, record what is actually packed, and print a
+        checked list for each box.
       </p>
       <section id="setup">
         <h2>Start a packing record</h2>
+        <div class="importPanel">
+          <h3>Import Shopify order data</h3>
+          <p>Use the Admin GraphQL query in <code>shopify.js</code>. Save its JSON response and open it here. Choose a fulfillment order when the order has more than one.</p>
+          <label>Fulfillment order ID, if needed<input id="fulfillmentOrderId" placeholder="gid://shopify/FulfillmentOrder/..." /></label>
+          <label>Shopify GraphQL response<input type="file" id="shopifyImport" accept=".json,application/json" /></label>
+        </div>
+        <h3>Or enter an order manually</h3>
         <label
           >Order reference<input
             id="order"
@@ -62,6 +69,14 @@ BOT | Bottle | 8</textarea></label
         </div>
         <section id="dispatch">
           <h2 id="dispatchTitle">Packing draft</h2>
+          <p id="sourceInfo"></p>
+          <div id="sourceRefresh" class="importPanel" hidden>
+            <label>Compare a fresh Shopify GraphQL response<input type="file" id="shopifyRefresh" accept=".json,application/json" /></label>
+          </div>
+          <div id="cartonCheck" hidden>
+            <p id="checkStatus"></p>
+            <button id="checkCarton" class="secondary">Mark selected carton checked</button>
+          </div>
           <p id="dispatchInfo">
             Check the actual contents, then seal a dispatch record.
           </p>
@@ -73,6 +88,7 @@ BOT | Bottle | 8</textarea></label
             View sealed dispatch
           </button>
           <button id="exportSlips" hidden>Download packing slips</button>
+          <button id="exportManifest" hidden>Download Shopify handoff</button>
         </section>
         <section id="balance"></section>
         <section id="pack">
@@ -124,6 +140,7 @@ BOT | Bottle | 8</textarea></label
     <footer>Carton Trace · Packing records you can take with you.</footer>
     <script src="core.js"></script>
     <script src="report.js"></script>
+    <script src="shopify.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carton Trace · Packer desk</title>
+<style>
+  :root{font:16px/1.45 system-ui,sans-serif;color:#17313c;background:#edf2f1}
+  *{box-sizing:border-box}body{margin:0}header{background:#123440;color:white;padding:22px max(24px,calc((100vw - 1120px)/2))}
+  h1{font-size:1.65rem;margin:0}h2{font-size:1.2rem;margin:0 0 12px}h3{margin:0 0 8px;font-size:1.05rem}
+  p{margin:7px 0 14px}.subtle{color:#57707a;font-size:.9rem}header .subtle{color:#c8dcde}
+  main{max-width:1120px;margin:24px auto;padding:0 20px 40px;display:grid;gap:16px}
+  section,.card{background:white;border:1px solid #d5e0e0;border-radius:10px;padding:20px;box-shadow:0 2px 8px #17313c0a}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+  label{display:grid;gap:5px;font-size:.9rem;font-weight:650}input,select,button{font:inherit}input,select{border:1px solid #aebfc4;border-radius:6px;padding:9px;min-width:0;background:white;color:#17313c}
+  button{border:1px solid #245b67;background:#245b67;color:white;border-radius:6px;padding:9px 13px;cursor:pointer;font-weight:650}
+  button.secondary{background:white;color:#245b67}button:disabled{opacity:.45;cursor:not-allowed}
+  .pill{display:inline-block;padding:3px 9px;border-radius:20px;background:#e0f1e9;color:#23543d;font-size:.85rem;font-weight:650}
+  .notice{border-left:4px solid #d3852e;padding:9px 12px;background:#fff6e8}.error{border-color:#ae3333;background:#fff0f0}
+  .cartons{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.carton{border:1px solid #d5e0e0;border-radius:8px;padding:14px}
+  .carton.checked{border-color:#32835b}.line{border-top:1px solid #e6eded;padding:8px 0}.line:first-child{border-top:0}
+  .small{font-size:.85rem}.muted{color:#627a82}.space{display:flex;justify-content:space-between;gap:12px;align-items:center}
+  #status:empty{display:none}#lookup-result{margin-top:14px}#workspace[hidden]{display:none}
+  @media print{header,.no-print,#start,#lookup,#status{display:none!important}main{max-width:none;margin:0;padding:0}section{box-shadow:none;border:0;padding:0}.cartons{display:block}.carton{break-after:page;border:0;padding:0}.carton:not(.print-selected){display:none}.carton h3{font-size:2rem}.carton button,.carton form{display:none}}
+</style>
+<header><h1>Carton Trace</h1><div class="subtle">Packer desk · Shopify workflow demo</div></header>
+<main>
+  <div id="status" role="status"></div>
+  <section id="start" class="no-print">
+    <h2>Start packing</h2>
+    <p class="subtle">This demo reads a fixture through the same server query seam an authorized Shopify app would use. Enter order ID 1042. No store connection is included.</p>
+    <form id="start-form" class="row">
+      <label>Shopify order ID<input name="orderId" value="1042" required></label>
+      <label>Fulfillment order ID <span class="muted small">optional when there is one</span><input name="fulfillmentOrderId" placeholder="2201"></label>
+      <label>Physical cartons<input name="cartons" type="number" min="1" max="50" value="4" required></label>
+      <button>Open packing draft</button>
+    </form>
+    <p class="subtle">Already started this run? Enter its Shopify IDs above and choose “Reopen draft.”</p>
+    <button id="reopen" class="secondary">Reopen draft</button>
+  </section>
+  <section id="workspace" hidden>
+    <div class="space"><div><h2 id="order-heading"></h2><p class="subtle" id="order-meta"></p></div><span id="state-pill" class="pill"></span></div>
+    <p id="progress"></p>
+    <div class="grid no-print" id="assign-controls">
+      <label>Line to pack<select id="line-select"></select></label>
+      <label>Carton<select id="carton-select"></select></label>
+      <label>Quantity<input id="quantity" type="number" min="1" value="1"></label>
+      <button id="assign">Add to carton</button>
+    </div>
+    <div class="row no-print" style="margin:16px 0">
+      <button id="demo-change" class="secondary">Demo: Shopify quantity changes</button>
+      <button id="reconcile" class="secondary">Recheck Shopify source</button>
+      <button id="acknowledge" class="secondary" hidden>Confirm removed units</button>
+      <button id="seal">Seal checked cartons</button>
+    </div>
+    <p id="removal" class="notice no-print" hidden></p>
+    <div id="cartons" class="cartons"></div>
+  </section>
+  <section id="lookup" class="no-print">
+    <h2>Find a dispatched carton</h2>
+    <p class="subtle">This searches the saved server record. It also works after opening a fresh browser session or restarting the demo against the same record directory.</p>
+    <form id="lookup-form" class="row">
+      <label>Shopify order name<input name="orderName" value="#1042" required></label>
+      <label>Carton number<input name="carton" type="number" min="1" value="4" required></label>
+      <button>Find carton</button>
+    </form>
+    <div id="lookup-result" aria-live="polite"></div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let ids = null, state = null;
+  const el = (tag, text, className) => { const node = document.createElement(tag); node.textContent = text; if(className) node.className=className; return node; };
+  function notice(message, error=false) { const box=$('status'); box.textContent=message; box.className=error?'notice error':'notice'; }
+  async function api(route, data) {
+    const options=data?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)}:{};
+    const response=await fetch('/api/'+route,options); const result=await response.json();
+    if(!response.ok) throw Error(result.error||'Request failed.'); return result;
+  }
+  function run(fn) { return async (event) => { event?.preventDefault(); try { await fn(event); } catch(error) { notice(error.message,true); } }; }
+  async function refresh() {
+    state=await api('record?'+new URLSearchParams(ids)); render();
+  }
+  function lineLabel(item) { return `${item.sku} · ${item.name}`; }
+  function render() {
+    const {record,checkedCartons,pendingRemoval,removalAcknowledged}=state;
+    const {draft,dispatch,shopifySource:source}=record;
+    $('workspace').hidden=false;
+    $('order-heading').textContent=`${source.orderName} · ${draft.boxes.length} cartons`;
+    $('order-meta').textContent=`Shopify order ${source.orderId.split('/').pop()} · fulfillment order ${source.fulfillmentOrderId.split('/').pop()}`;
+    $('state-pill').textContent=dispatch?'Sealed and saved':'Packing draft';
+    const unpacked=source.items.reduce((total,item)=>total+item.qty-draft.allocations.filter(a=>a.sku===item.id).reduce((n,a)=>n+a.qty,0),0);
+    $('progress').textContent=dispatch?`Sealed ${new Date(dispatch.at).toLocaleString()}. Look up any carton below.`:`${unpacked} units still unpacked · ${checkedCartons.length}/${draft.boxes.length} cartons checked`;
+    $('assign-controls').hidden=Boolean(dispatch); $('seal').hidden=Boolean(dispatch);
+    $('demo-change').hidden=Boolean(dispatch); $('reconcile').hidden=Boolean(dispatch);
+    $('acknowledge').hidden=Boolean(dispatch)||!pendingRemoval.length||removalAcknowledged;
+    $('removal').hidden=!pendingRemoval.length||Boolean(dispatch);
+    if(pendingRemoval.length) $('removal').textContent=`Source change removed ${pendingRemoval.map(x=>`${x.qty} unit(s) from carton ${x.box}`).join(', ')}. Physically remove them before confirming, then recheck each carton.`;
+    $('line-select').replaceChildren(...source.items.map(item=>{const option=el('option',`${lineLabel(item)} · ${item.qty} ordered`);option.value=item.id;return option;}));
+    $('carton-select').replaceChildren(...draft.boxes.map(box=>{const option=el('option',`Carton ${box}`);option.value=box;return option;}));
+    const container=$('cartons');container.replaceChildren();
+    for(const box of draft.boxes){
+      const card=el('article','',`carton${checkedCartons.includes(box)?' checked':''}`);
+      card.append(el('h3',`Carton ${box}`));
+      const rows=draft.allocations.filter(a=>a.box===box);
+      if(!rows.length) card.append(el('p','No items assigned','muted'));
+      for(const row of rows){
+        const item=source.items.find(i=>i.id===row.sku);
+        const line=el('div','', 'line');line.append(el('strong',`${row.qty} × ${lineLabel(item)}`));
+        line.append(el('div',`Shopify line ${row.sku.split('/').pop()}`,'small muted'));
+        if(!dispatch){const undo=el('button','Remove units','secondary no-print'); undo.onclick=run(async()=>{
+          const qty=Number(prompt(`Remove how many ${item.sku} from carton ${box}?`,String(row.qty)));
+          if(!Number.isSafeInteger(qty)||qty<1||qty>row.qty) throw Error('Enter a valid quantity to remove.');
+          await api('unassign',{...ids,carton:box,lineId:row.sku,quantity:qty});await refresh();notice('Packing draft updated. Carton checks were cleared.');
+        });line.append(undo);}card.append(line);
+      }
+      const actions=el('div','', 'row no-print');
+      const print=el('button','Print carton slip','secondary');print.onclick=()=>{
+        card.classList.add('print-selected');window.print();card.classList.remove('print-selected');
+      };actions.append(print);
+      if(!dispatch){const check=el('button',checkedCartons.includes(box)?'Checked':'Check physical carton');
+        check.disabled=checkedCartons.includes(box)||!rows.length||!removalAcknowledged;
+        check.onclick=run(async()=>{await api('check',{...ids,carton:box});await refresh();notice(`Carton ${box} marked checked against its current list.`);});actions.append(check);}
+      card.append(actions);container.append(card);
+    }
+  }
+  $('start-form').onsubmit=run(async event=>{
+    const data=Object.fromEntries(new FormData(event.currentTarget));
+    const cartons=Array.from({length:Number(data.cartons)},(_,i)=>String(i+1));
+    if(!cartons.length||cartons.length>50) throw Error('Choose 1–50 cartons.');
+    const result=await api('start',{orderId:data.orderId,fulfillmentOrderId:data.fulfillmentOrderId,cartons});
+    ids={orderId:result.record.shopifySource.orderId,fulfillmentOrderId:result.record.shopifySource.fulfillmentOrderId};
+    await refresh();notice('Packing draft saved on the demo server.');
+  });
+  $('reopen').onclick=run(async()=>{
+    const data=Object.fromEntries(new FormData($('start-form')));
+    if(!data.fulfillmentOrderId) throw Error('Enter the fulfillment order ID to reopen a draft.');
+    ids={orderId:data.orderId,fulfillmentOrderId:data.fulfillmentOrderId};await refresh();notice('Saved draft reopened.');
+  });
+  $('assign').onclick=run(async()=>{
+    await api('assign',{...ids,carton:$('carton-select').value,lineId:$('line-select').value,quantity:Number($('quantity').value)});
+    await refresh();notice('Items added. Carton checks were cleared.');
+  });
+  $('demo-change').onclick=run(async()=>{await api('demo-source',{changed:true});notice('Fixture changed: bottles reduced from 8 to 6. Choose “Recheck Shopify source.”');});
+  $('reconcile').onclick=run(async()=>{const result=await api('reconcile',ids);await refresh();notice(result.changed.length?`${result.changed.length} source line changed. Review and remove affected units.`:'Shopify source matches this draft.');});
+  $('acknowledge').onclick=run(async()=>{await api('acknowledge',ids);await refresh();notice('Physical removal acknowledged. Check every carton again.');});
+  $('seal').onclick=run(async()=>{await api('seal',ids);await refresh();notice('Cartons sealed and saved. Try the lookup below.');});
+  $('lookup-form').onsubmit=run(async event=>{
+    const data=Object.fromEntries(new FormData(event.currentTarget));
+    const result=await api('lookup?'+new URLSearchParams(data));const target=$('lookup-result');target.replaceChildren();
+    target.append(el('h3',`${result.orderName} · carton ${result.carton}`));
+    target.append(el('p',`Sealed ${new Date(result.sealedAt).toLocaleString()}`,'subtle'));
+    for(const row of result.rows) target.append(el('p',`${row.quantity} × ${row.sku} · ${row.name} · Shopify line ${row.fulfillmentOrderLineItemId.split('/').pop()}`));
+    notice(`Saved carton ${result.carton} found.`);
+  });
+</script>
+</html>

@@ -1,10 +1,14 @@
 "use strict";
 const $ = (id) => document.getElementById(id),
-  C = Carton;
+  C = Carton,
+  S = CartonShopify;
 let state = null,
   selected = null,
   dispatch = null,
-  viewDispatch = false;
+  viewDispatch = false,
+  source = null,
+  sourceChecked = false,
+  checkedBoxes = new Set();
 const storageKey = "carton-trace-v1";
 const escape = (s) =>
   String(s).replace(
@@ -54,7 +58,13 @@ function start() {
         throw Error("Each line needs SKU | product name | quantity.");
       return { sku: fields[0], name: fields[1], qty: Number(fields[2]) };
     });
-  state = C.create($("order").value, lines, $("boxes").value.split(","));
+  const next = C.create($("order").value, lines, $("boxes").value.split(","));
+  source = null;
+  sourceChecked = false;
+  checkedBoxes.clear();
+  dispatch = null;
+  viewDispatch = false;
+  state = next;
   selected = state.boxes[0];
   render();
 }
@@ -76,9 +86,15 @@ function table(rows) {
     "</tbody></table>"
   );
 }
+function displayRow(row) {
+  if (!source) return row;
+  const item = source.items.find((x) => x.id === row.sku);
+  return { ...row, sku: item ? item.sku : row.sku };
+}
 function render() {
   clearConfirmation();
   if (!state) return;
+  const packSku = $("sku").value;
   const draft = state;
   state = viewDispatch && dispatch ? dispatch.state : draft;
   $("setup").hidden = true;
@@ -89,7 +105,7 @@ function render() {
     (C.complete(state) ? "All units accounted for" : "Packing in progress") +
     "</h2>" +
     table(
-      state.lines.map((l) => ({
+      state.lines.map((l) => displayRow({
         ...l,
         qty: C.remaining(state, l.sku) + " remaining / " + l.qty,
       })),
@@ -97,24 +113,27 @@ function render() {
   $("box").innerHTML = state.boxes
     .map((b) => "<option>" + escape(b) + "</option>")
     .join("");
+  $("box").value = selected;
   $("sku").innerHTML = state.lines
     .map(
       (l) =>
         '<option value="' +
         escape(l.sku) +
         '">' +
-        escape(l.name) +
+        escape(l.name + (source ? " · " + displayRow(l).sku : "")) +
         " · " +
         C.remaining(state, l.sku) +
         " left</option>",
     )
     .join("");
+  if (state.lines.some((l) => l.sku === packSku)) $("sku").value = packSku;
   for (const id of ["from", "to", "removeBoxName"])
     $(id).innerHTML = state.boxes
       .map((b) => "<option>" + escape(b) + "</option>")
       .join("");
   $("moveSku").innerHTML = state.lines
-    .map((l) => "<option>" + escape(l.sku) + "</option>")
+    .map((l) => '<option value="' + escape(l.sku) + '">' +
+      escape(l.name + " · " + displayRow(l).sku) + "</option>")
     .join("");
   $("cards").innerHTML = state.boxes
     .map(
@@ -138,7 +157,7 @@ function render() {
     " of " +
     state.boxes.length +
     "</p>" +
-    table(C.contents(state, selected));
+    table(C.contents(state, selected).map(displayRow));
   $("slips").innerHTML = state.boxes
     .map(
       (b, i) =>
@@ -151,7 +170,7 @@ function render() {
         " of " +
         state.boxes.length +
         "</p>" +
-        table(C.contents(state, b)) +
+        table(C.contents(state, b).map(displayRow)) +
         "</section>",
     )
     .join("");
@@ -161,13 +180,28 @@ function render() {
   $("repack").hidden = viewDispatch;
   $("cartonManagement").hidden = viewDispatch;
   $("seal").hidden = !!dispatch;
-  $("seal").disabled = !C.complete(draft);
+  $("seal").disabled = !C.complete(draft) ||
+    (!!source && (!sourceChecked || checkedBoxes.size !== draft.boxes.length));
   $("viewDraft").hidden = !viewDispatch;
   $("viewDispatch").hidden = !dispatch || viewDispatch;
   $("exportSlips").hidden = !viewDispatch;
+  $("exportManifest").hidden = !viewDispatch || !source;
   $("dispatchTitle").textContent = viewDispatch
     ? "Sealed dispatch record"
     : "Packing draft";
+  $("sourceInfo").textContent = source
+    ? "Shopify order " + source.orderName + " · fulfillment order " + source.fulfillmentOrderId +
+      " · " + source.items.length + " shippable lines imported. " +
+      (sourceChecked ? "Source response compared for this session." : "Import a fresh response to compare before sealing.")
+    : "Manual order entry.";
+  $("sourceRefresh").hidden = !source || !!dispatch || viewDispatch;
+  $("cartonCheck").hidden = !source || viewDispatch;
+  $("checkStatus").textContent = source
+    ? checkedBoxes.size + " of " + draft.boxes.length + " cartons checked. " +
+      (checkedBoxes.has(selected) ? "Box " + selected + " checked." : "Check the physical contents of box " + selected + ".")
+    : "";
+  $("checkCarton").disabled = !source || viewDispatch || !draft.boxes.includes(selected) ||
+    !C.contents(draft, selected).length || checkedBoxes.has(selected);
   $("dispatchInfo").textContent = dispatch
     ? "Dispatch sealed " +
       dispatch.at +
@@ -186,6 +220,7 @@ $("assign").onclick = () =>
       $("sku").value,
       Number($("quantity").value),
     );
+    checkedBoxes.clear();
     render();
   });
 $("cards").onclick = (e) => {
@@ -202,6 +237,9 @@ $("new").onclick = () =>
       state = null;
       dispatch = null;
       viewDispatch = false;
+      source = null;
+      sourceChecked = false;
+      checkedBoxes.clear();
       $("save").disabled = true;
       try {
         localStorage.removeItem(storageKey);
@@ -241,6 +279,7 @@ $("move").onclick = () =>
       $("moveSku").value,
       Number($("moveQty").value),
     );
+    checkedBoxes.clear();
     selected = to;
     render();
     $("notice").textContent = "Units moved. Order totals preserved.";
@@ -253,6 +292,7 @@ $("unpack").onclick = () =>
       $("moveSku").value,
       Number($("moveQty").value),
     );
+    checkedBoxes.clear();
     render();
     $("notice").textContent =
       "Units returned to unpacked. Reconcile before dispatch.";
@@ -260,7 +300,7 @@ $("unpack").onclick = () =>
 
 function persist() {
   try {
-    localStorage.setItem(storageKey, JSON.stringify(C.bundle(state, dispatch)));
+    localStorage.setItem(storageKey, JSON.stringify(S.bundle(state, dispatch, source)));
     $("storageStatus").textContent = "Draft saved in this browser.";
   } catch (e) {
     $("storageStatus").textContent =
@@ -279,7 +319,7 @@ $("save").onclick = () =>
   act(() => {
     download(
       "carton-trace-record.json",
-      JSON.stringify(C.bundle(state, dispatch), null, 2),
+      JSON.stringify(S.bundle(state, dispatch, source), null, 2),
       "application/json",
     );
     $("notice").textContent =
@@ -290,10 +330,13 @@ $("load").onchange = async (e) => {
   if (!file) return;
   try {
     if (file.size > 2000000) throw Error("Choose a record under 2 MB.");
-    const restored = C.restore(await file.text());
+    const restored = S.restore(await file.text());
     const apply = () => {
       state = restored.draft;
       dispatch = restored.dispatch;
+      source = restored.shopifySource;
+      sourceChecked = false;
+      checkedBoxes.clear();
       viewDispatch = !!dispatch;
       selected = (dispatch ? dispatch.state : state).boxes[0];
       render();
@@ -338,16 +381,19 @@ $("exportSlips").onclick = () =>
     if (!dispatch) throw Error("Seal a dispatch first.");
     download(
       "carton-trace-packing-slips.html",
-      CartonReport.slips(dispatch),
+      CartonReport.slips(dispatch, source),
       "text/html",
     );
   });
 try {
   const saved = localStorage.getItem(storageKey);
   if (saved) {
-    const r = C.restore(saved);
+    const r = S.restore(saved);
     state = r.draft;
     dispatch = r.dispatch;
+    source = r.shopifySource;
+    sourceChecked = false;
+    checkedBoxes.clear();
     viewDispatch = !!dispatch;
     selected = (dispatch ? dispatch.state : state).boxes[0];
     render();
@@ -360,6 +406,7 @@ try {
 $("addBox").onclick = () =>
   act(() => {
     state = C.addBox(state, $("newBox").value);
+    checkedBoxes.clear();
     selected = state.boxes[state.boxes.length - 1];
     $("newBox").value = "";
     render();
@@ -367,8 +414,74 @@ $("addBox").onclick = () =>
 $("removeBox").onclick = () =>
   act(() => {
     state = C.removeBox(state, $("removeBoxName").value);
+    checkedBoxes.clear();
     if (!state.boxes.includes(selected)) selected = state.boxes[0];
     render();
     $("notice").textContent =
       "Empty carton removed. Remaining carton numbers updated.";
   });
+
+async function importShopify(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    if (file.size > 2000000) throw Error("Choose a response under 2 MB.");
+    const fresh = S.fromResponse(await file.text(), $("fulfillmentOrderId").value || source?.fulfillmentOrderId);
+    if (source && state && !dispatch && source.orderId === fresh.orderId &&
+        source.fulfillmentOrderId === fresh.fulfillmentOrderId) {
+      const diff = S.changes(source, fresh);
+      if (!diff.length) {
+        source = fresh;
+        sourceChecked = true;
+        render();
+        $("notice").textContent = "Shopify source rechecked: no line or quantity changes.";
+      } else {
+        const result = S.rebase(state, source, fresh);
+        confirmAction("Shopify data changed in " + diff.length + " line(s). Apply the new quantities? " +
+          result.removed.reduce((n, x) => n + x.qty, 0) +
+          " previously packed units will be returned from cartons. Recheck every carton before sealing.", () => {
+            state = result.state;
+            source = fresh;
+            sourceChecked = false;
+            checkedBoxes.clear();
+            selected = state.boxes[0];
+            render();
+            $("notice").textContent = "Updated source applied. Reconcile unpacked units and recheck physical cartons.";
+          });
+      }
+    } else {
+      const apply = () => {
+        state = S.toDraft(fresh, $("boxes").value.split(","));
+        source = fresh;
+        sourceChecked = false;
+        checkedBoxes.clear();
+        dispatch = null;
+        viewDispatch = false;
+        selected = state.boxes[0];
+        render();
+        $("notice").textContent = "Shopify fulfillment lines imported. Record carton contents.";
+      };
+      if (state) confirmAction("Replace this packing record with the imported Shopify order? Download the current record first if needed.", apply);
+      else apply();
+    }
+  } catch (err) {
+    $("notice").textContent = "Shopify data not imported: " + err.message;
+  } finally {
+    e.target.value = "";
+  }
+}
+$("shopifyImport").onchange = importShopify;
+$("shopifyRefresh").onchange = importShopify;
+$("exportManifest").onclick = () => act(() => {
+  if (!dispatch || !source) throw Error("Seal a Shopify sourced record first.");
+  download("carton-trace-shopify-handoff.json",
+    JSON.stringify(S.manifest(dispatch.state, source), null, 2), "application/json");
+  $("notice").textContent = "Shopify handoff downloaded. A store integration must recheck current quantities before any fulfillment write.";
+});
+$("checkCarton").onclick = () => act(() => {
+  if (!source || !state || !C.contents(state, selected).length)
+    throw Error("Select a packed carton to check.");
+  checkedBoxes.add(selected);
+  render();
+  $("notice").textContent = "Box " + selected + " marked checked. Any packing change clears these checks.";
+});

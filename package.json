@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "demo": "node cli.js demo"
+    "demo": "node cli.js demo",
+    "demo:shopify": "node demo-host.js",
+    "demo:packer": "node run-demo-server.js"
   },
   "keywords": [],
   "author": "",

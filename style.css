@@ -38,6 +38,16 @@ h1 {
   max-width: 650px;
   color: #52665c;
 }
+.importPanel {
+  background: #edf4ef;
+  border-left: 5px solid #175d4b;
+  border-radius: 8px;
+  padding: 18px;
+  overflow-wrap: anywhere;
+}
+.importPanel h3 { margin-top: 0; }
+.importPanel p { line-height: 1.5; }
+#sourceInfo { overflow-wrap: anywhere; color: #52665c; }
 h2 {
   font-size: 23px;
 }
