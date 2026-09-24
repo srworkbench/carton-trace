@@ -10,7 +10,7 @@ function app(saved) {
     { url: "http://localhost", runScripts: "outside-only" },
   );
   if (saved) dom.window.localStorage.setItem("carton-trace-v1", saved);
-  for (const file of ["core.js", "report.js", "app.js"])
+  for (const file of ["core.js", "report.js", "shopify.js", "app.js"])
     dom.window.eval(fs.readFileSync(path.join(root, file), "utf8"));
   const d = dom.window.document;
   return {
@@ -106,5 +106,78 @@ test("UI model: consolidate, remove empty carton, seal updated packing list", ()
   a.click("seal");
   a.click("confirmAction");
   assert.equal(JSON.parse(a.saved()).dispatch.state.boxes.length, 3);
+  a.dom.window.close();
+});
+
+test("UI model: Shopify response import and changed-order rebase need explicit confirmation", async () => {
+  const a = app();
+  const read = (name) => fs.readFileSync(path.join(root, "fixtures", name), "utf8");
+  const open = async (raw) => {
+    const target = { files: [{ size: raw.length, text: async () => raw }], value: "file" };
+    await a.$("shopifyImport").onchange({ target });
+    assert.equal(target.value, "");
+  };
+  await open(read("shopify-order.json"));
+  assert.match(a.$("sourceInfo").textContent, /Shopify order #1042/);
+  assert.match(a.$("balance").textContent, /8 remaining/);
+  const before = a.saved();
+  await open(read("shopify-order-changed.json"));
+  assert.equal(a.$("confirmAction").hidden, false);
+  assert.equal(a.saved(), before);
+  a.click("confirmAction");
+  assert.match(a.$("balance").textContent, /6 remaining/);
+  assert.equal(JSON.parse(a.saved()).shopifySource.items[2].qty, 6);
+  a.dom.window.close();
+});
+
+test("UI model: imported dispatch requires a second source comparison", async () => {
+  const a = app();
+  a.$("boxes").value = "1";
+  const raw = fs.readFileSync(path.join(root, "fixtures/shopify-order.json"), "utf8");
+  const open = async () => a.$("shopifyImport").onchange({ target: {
+    files: [{ size: raw.length, text: async () => raw }], value: "file" } });
+  await open();
+  const ids = JSON.parse(a.saved()).shopifySource.items;
+  for (const item of ids) {
+    a.$("sku").value = item.id;
+    a.$("quantity").value = String(item.qty);
+    a.click("assign");
+  }
+  assert.equal(a.$("seal").disabled, true);
+  await open();
+  assert.equal(a.$("seal").disabled, true);
+  a.click("checkCarton");
+  assert.equal(a.$("seal").disabled, false);
+  assert.match(a.$("sourceInfo").textContent, /compared/);
+  a.$("from").value = "1";
+  a.$("moveSku").value = ids[0].id;
+  a.$("moveQty").value = "1";
+  a.click("unpack");
+  a.$("sku").value = ids[0].id;
+  a.$("quantity").value = "1";
+  a.click("assign");
+  assert.equal(a.$("seal").disabled, true);
+  assert.match(a.$("checkStatus").textContent, /0 of 1/);
+  a.dom.window.close();
+});
+
+test("UI model: Shopify comparison stays available and carton choice survives packing", async () => {
+  const a = app();
+  const raw = fs.readFileSync(path.join(root, "fixtures/shopify-order.json"), "utf8");
+  const upload = async (control) => {
+    const target = { files: [{ size: raw.length, text: async () => raw }], value: "file" };
+    await a.$(control).onchange({ target });
+  };
+  await upload("shopifyImport");
+  assert.equal(a.$("sourceRefresh").hidden, false);
+  a.$("box").value = "2";
+  a.$("sku").selectedIndex = 1;
+  a.$("quantity").value = "3";
+  a.click("assign");
+  assert.equal(a.$("box").value, "2");
+  assert.equal(a.$("sku").selectedIndex, 1);
+  assert.match(a.$("detail").textContent, /Tea tin.*3/);
+  await upload("shopifyRefresh");
+  assert.match(a.$("sourceInfo").textContent, /compared/);
   a.dom.window.close();
 });
